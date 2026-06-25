@@ -1,49 +1,22 @@
-const jwt =
-require(
-"jsonwebtoken"
-);
+const jwt = require("jsonwebtoken");
 
-const optionalAuth =
-(
-req,
-res,
-next
-)=>{
+const optionalAuth = (req, res, next) => {
+  try {
+    const token = req.cookies.token;
 
-try{
+    if (token) {
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET
+      );
 
-const token =
-req.cookies.token;
+      req.user = decoded;
+    }
 
-if(
-token
-){
-
-const decoded =
-jwt.verify(
-
-token,
-
-process.env.JWT_SECRET
-
-);
-
-req.user =
-decoded;
-
-}
-
-next();
-
-}
-
-catch{
-
-next();
-
-}
-
+    next();
+  } catch {
+    next();
+  }
 };
 
-module.exports =
-optionalAuth;
+module.exports = optionalAuth;

@@ -4,10 +4,7 @@ const { ObjectId } = require("mongodb");
 const { getDB } = require("../config/db");
 
 const protect = async (
-  req,
-  res,
-  next
-) => {
+  req,res,next) => {
   try {
     const token = req.cookies.token;
 

@@ -1,34 +1,33 @@
 const { MongoClient, ServerApiVersion } = require("mongodb");
 
-const client = new MongoClient(
-  process.env.MONGODB_URI,
-  {
+let db = null;
+let client = null;
+
+async function connectDB() {
+  if (db) return db;
+
+  client = new MongoClient(process.env.MONGODB_URI, {
     serverApi: {
       version: ServerApiVersion.v1,
       strict: true,
       deprecationErrors: true,
     },
-  }
-);
+  });
 
-let db;
+  await client.connect();
 
-const connectDB = async () => {
-  try {
-    await client.connect();
+  db = client.db("promptbay-db");
 
-    db = client.db("promptbay-db");
+  console.log("MongoDB Connected");
 
-    console.log("MongoDB Connected");
-  } catch (error) {
-    console.log(error);
-  }
-};
+  return db;
+}
 
-const getDB = () => db;
+function getDB() {
+  return db;
+}
 
 module.exports = {
   connectDB,
   getDB,
-  client,
 };

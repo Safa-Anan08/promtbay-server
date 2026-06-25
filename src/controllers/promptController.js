@@ -1,1435 +1,635 @@
-const { getDB } =
-require("../config/db");
+const { getDB } =require("../config/db");
 
-const cloudinary =
-require("../config/cloudinary");
+const cloudinary =require("../config/cloudinary");
 
-const {
-ObjectId,
-} =
-require("mongodb");
+const {ObjectId,} =require("mongodb");
+const addPrompt =async (req,res)=>{
+        try
+        {
+          const db =getDB()
+            const user =await db.collection("users").findOne({
+             email:
+             req.user.email,});
 
-// ======================
-// ADD PROMPT
-// ======================
 
-const addPrompt =
-async (
-req,
-res
-)=>{
+            if(
+              !["user","creator"]
+            .includes(user?.role)){
 
-try{
+            return res
+            .status(403)
+            .json({
 
-const db =
-getDB();
+          message:"Not allowed",
 
-const user =
-await db
-.collection(
-"users"
-)
-.findOne({
+           });
 
-email:
-req.user.email,
+             }
 
+           if(user?.plan==="free"){
+           const total =await db.collection("prompts").countDocuments({
+
+            creatorEmail:
+            req.user.email,
+
+            });
+
+                 if(total>=3){return res.status(403).json({
+
+                 message:"Free users can add only 3 prompts",});
+           }}
+
+
+             let thumbnail ="";
+
+          if(req.file){const result =await cloudinary.uploader.upload(req.file.path,
+
+             {folder:"prompts",});
+
+           thumbnail =result.secure_url;}
+
+          const prompt = {
+
+           title:
+           req.body.title,
+           description:
+           req.body.description,
+           content:
+           req.body.content,
+          category:
+          req.body.category,
+          tool:
+          req.body.tool,
+          tags:req.body.tags?.split(","),
+
+          difficulty:
+           req.body.difficulty,
+
+           visibility:
+            req.body.visibility,
+
+          thumbnail,
+
+          creatorEmail:
+           req.user.email,
+            creatorName:
+            user.name,
+         copyCount:0,
+        bookmarkCount:0,
+        reviewCount:0,
+       rating:0,
+
+        status:"pending",
+         createdAt:new Date(),};
+
+          await db.collection("prompts").insertOne(prompt);
+
+res.status(201).json({
+  success: true,
+  message: "Prompt Added",
 });
 
-// allow only user + creator
+} catch (error) {
 
-if(
-!["user","creator"]
-.includes(
-user?.role
-)
-){
+  console.log("ADD PROMPT ERROR:", error);
 
-return res
-.status(403)
-.json({
-
-message:
-"Not allowed",
-
-});
-
-}
-
-// free limit
-
-if(
-user?.plan===
-"free"
-){
-
-const total =
-await db
-.collection(
-"prompts"
-)
-.countDocuments({
-
-creatorEmail:
-req.user.email,
-
-});
-
-if(
-total>=3
-){
-
-return res
-.status(403)
-.json({
-
-message:
-"Free users can add only 3 prompts",
-
-});
-
-}
-
-}
-
-// upload image
-
-let thumbnail =
-"";
-
-if(
-req.file
-){
-
-const result =
-await cloudinary
-.uploader
-.upload(
-
-req.file.path,
-
-{
-folder:
-"prompts",
-}
-
-);
-
-thumbnail =
-result.secure_url;
-
-}
-
-// create prompt
-
-const prompt = {
-
-title:
-req.body.title,
-
-description:
-req.body.description,
-
-content:
-req.body.content,
-
-category:
-req.body.category,
-
-tool:
-req.body.tool,
-
-tags:
-req.body.tags
-?.split(","),
-
-difficulty:
-req.body.difficulty,
-
-visibility:
-req.body.visibility,
-
-thumbnail,
-
-creatorEmail:
-req.user.email,
-
-creatorName:
-user.name,
-
-copyCount:0,
-
-bookmarkCount:0,
-
-reviewCount:0,
-
-rating:0,
-
-status:
-"pending",
-
-createdAt:
-new Date(),
-
-};
-
-await db
-.collection(
-"prompts"
-)
-.insertOne(
-prompt
-);
-
-res
-.status(201)
-.json({
-
-success:true,
-
-message:
-"Prompt Added",
-
-});
-
-}
-
-catch(
-error
-){
-
-console.log(
-"ADD PROMPT ERROR:",
-error
-);
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
+  res.status(500).json({
+    message: error.message,
+  });
 
 }
 
 };
 
-// ======================
-// MY PROMPTS
-// ======================
+const getMyPrompts = async (req, res) => {
 
-const getMyPrompts =
-async(
-req,
-res
-)=>{
+  try {
 
-try{
+    const db = getDB();
 
-const db =
-getDB();
+    const prompts = await db
+      .collection("prompts")
+      .find({
+        creatorEmail: req.user.email,
+      })
+      .toArray();
 
-const prompts =
-await db
-.collection(
-"prompts"
-)
-.find({
+    res.json({
+      success: true,
+      prompts,
+    });
 
-creatorEmail:
-req.user.email,
+  } catch (error) {
 
-})
-.toArray();
+    res.status(500).json({
+      message: error.message,
+    });
 
-res.json({
+  }
 
-success:true,
+};
 
-prompts,
+const getSinglePrompt = async (req, res) => {
 
-});
+  try {
 
-}
+    const db = getDB();
 
-catch(
-error
-){
+    const prompt = await db
+      .collection("prompts")
+      .findOne({
+        _id: new ObjectId(req.params.id),
+      });
 
-res
-.status(500)
-.json({
+    if (!prompt) {
 
-message:
-error.message,
+      return res.status(404).json({
+        message: "Prompt not found",
+      });
 
-});
+    }
 
-}
+    let canAccess = true;
+
+
+    if (prompt.visibility === "premium") {
+
+      canAccess = false;
+
+      if (req.user) {
+
+        const user = await db
+          .collection("users")
+          .findOne({
+            email: req.user.email,
+          });
+
+        if (
+          user?.plan === "premium" ||
+          user?.subscriptionStatus === "active"
+        ) {
+
+          canAccess = true;
+
+        }
+
+      }
+
+    }
+
+    res.json({
+      success: true,
+      prompt,
+      canAccess,
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      message: error.message,
+    });
+
+  }
+
+};
+
+const deletePrompt = async (req, res) => {
+
+  try {
+
+    const db = getDB();
+
+    await db.collection("prompts").deleteOne({
+      _id: new ObjectId(req.params.id),
+      creatorEmail: req.user.email,
+    });
+
+    res.json({
+      success: true,
+      message: "Deleted",
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      message: error.message,
+    });
+
+  }
+
+};
+
+const updatePrompt = async (req, res) => {
+
+  try {
+
+    const db = getDB();
+
+    const {
+      _id,
+      creatorEmail,
+      creatorName,
+      createdAt,
+      ...rest
+    } = req.body;
+
+    await db.collection("prompts").updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+        creatorEmail: req.user.email,
+      },
+      {
+        $set: {
+          ...rest,
+          tags: Array.isArray(rest.tags)
+            ? rest.tags
+            : rest.tags?.split(","),
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    res.json({
+      success: true,
+      message: "Updated",
+    });
+
+  } catch (error) {
+
+    console.log(error);
+
+    res.status(500).json({
+      message: error.message,
+    });
+
+  }
 
 };
 
 
-const getSinglePrompt =
-async(
-req,
-res
-)=>{
+const getAllPromptsAdmin = async (req, res) => {
+  try {
+    const db = getDB();
 
-try{
+    const prompts = await db
+      .collection("prompts")
+      .find()
+      .sort({
+        createdAt: -1,
+      })
+      .toArray();
 
-const db =
-getDB();
-
-const prompt =
-await db
-.collection(
-"prompts"
-)
-.findOne({
-
-_id:
-new ObjectId(
-req.params.id
-
-),
-
-});
-
-if(
-!prompt
-){
-
-return res
-.status(404)
-.json({
-
-message:
-"Prompt not found",
-
-});
-
-}
-
-let canAccess =
-true;
-
-// premium only
-
-if(
-prompt.visibility===
-"premium"
-){
-
-canAccess=
-false;
-
-if(
-req.user
-){
-
-const user =
-await db
-.collection(
-"users"
-)
-.findOne({
-
-email:
-req.user.email,
-
-});
-
-if(
-
-user?.plan===
-"premium"
-
-||
-
-user?.subscriptionStatus===
-"active"
-
-){
-
-canAccess=
-true;
-
-}
-
-}
-
-}
-
-res.json({
-
-success:true,
-
-prompt,
-
-canAccess,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
-};
-// ======================
-// DELETE
-// ======================
-
-const deletePrompt =
-async(
-req,
-res
-)=>{
-
-try{
-
-const db =
-getDB();
-
-await db
-.collection(
-"prompts"
-)
-.deleteOne({
-
-_id:
-new ObjectId(
-req.params.id
-),
-
-creatorEmail:
-req.user.email,
-
-});
-
-res.json({
-
-success:true,
-
-message:
-"Deleted",
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+      prompts,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
-const updatePrompt =
-async(
-req,
-res
-)=>{
+const approvePrompt = async (req, res) => {
+  try {
+    const db = getDB();
 
-try{
+    await db.collection("prompts").updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $set: {
+          status: "approved",
+        },
+      }
+    );
 
-const db =
-getDB();
-
-const {
-
-_id,
-
-creatorEmail,
-
-creatorName,
-
-createdAt,
-
-...rest
-
-} =
-req.body;
-
-await db
-.collection(
-"prompts"
-)
-.updateOne(
-
-{
-
-_id:
-new ObjectId(
-req.params.id
-),
-
-creatorEmail:
-req.user.email,
-
-},
-
-{
-
-$set:{
-
-...rest,
-
-tags:
-Array.isArray(
-rest.tags
-)
-
-?
-
-rest.tags
-
-:
-
-rest.tags
-?.split(","),
-
-updatedAt:
-new Date(),
-
-},
-
-}
-
-);
-
-res.json({
-
-success:true,
-
-message:
-"Updated",
-
-});
-
-}
-
-catch(
-error
-){
-
-console.log(
-error
-);
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
-const getAllPromptsAdmin =
-async(
-req,
-res
-)=>{
+const getPromptStats = async (req, res) => {
+  try {
+    const db = getDB();
 
-try{
+    const total = await db.collection("prompts").countDocuments();
 
-const db =
-getDB();
+    const approved = await db.collection("prompts").countDocuments({
+      status: "approved",
+    });
 
-const prompts =
-await db
-.collection(
-"prompts"
-)
-.find()
-.sort({
+    const pending = await db.collection("prompts").countDocuments({
+      status: "pending",
+    });
 
-createdAt:-1,
+    const rejected = await db.collection("prompts").countDocuments({
+      status: "rejected",
+    });
 
-})
-.toArray();
-
-res.json({
-
-success:true,
-
-prompts,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+      stats: {
+        total,
+        approved,
+        pending,
+        rejected,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 };
 
 
-const approvePrompt =
-async(
-req,
-res
-)=>{
+const rejectPrompt = async (req, res) => {
+  try {
+    const db = getDB();
 
-try{
+    await db.collection("prompts").updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $set: {
+          status: "rejected",
+          rejectionReason: req.body.reason,
+        },
+      }
+    );
 
-const db =
-getDB();
-
-await db
-.collection(
-"prompts"
-)
-.updateOne(
-
-{
-
-_id:
-new ObjectId(
-req.params.id
-),
-
-},
-
-{
-
-$set:{
-
-status:
-"approved",
-
-},
-
-}
-
-);
-
-res.json({
-
-success:true,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
-const getPromptStats =
-async(
-req,
-res
-)=>{
+const getAllPrompts = async (req, res) => {
+  try {
+    const db = getDB();
 
-try{
+    const {
+      search,
+      category,
+      tool,
+      difficulty,
+      sort,
+    } = req.query;
 
-const db =
-getDB();
+    let query = {
+      status: "approved",
+    };
 
-const total =
-await db
-.collection(
-"prompts"
-)
-.countDocuments();
+    if (search) {
+      query.$or = [
+        {
+          title: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          tool: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          tags: {
+            $in: [new RegExp(search, "i")],
+          },
+        },
+      ];
+    }
 
-const approved =
-await db
-.collection(
-"prompts"
-)
-.countDocuments({
+    if (category) {
+      query.category = category;
+    }
 
-status:
-"approved",
+    if (tool) {
+      query.tool = tool;
+    }
 
-});
+    if (difficulty) {
+      query.difficulty = difficulty;
+    }
 
-const pending =
-await db
-.collection(
-"prompts"
-)
-.countDocuments({
+    let order = {
+      createdAt: -1,
+    };
 
-status:
-"pending",
+    if (sort === "copied") {
+      order = {
+        copyCount: -1,
+      };
+    }
 
-});
+    if (sort === "popular") {
+      order = {
+        rating: -1,
+      };
+    }
 
-const rejected =
-await db
-.collection(
-"prompts"
-)
-.countDocuments({
+    const prompts = await db
+      .collection("prompts")
+      .find(query)
+      .sort(order)
+      .toArray();
 
-status:
-"rejected",
-
-});
-
-res.json({
-
-success:true,
-
-stats:{
-
-total,
-approved,
-pending,
-rejected,
-
-},
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-success:false,
-
-message:
-error.message,
-
-});
-
-}
-
-};
-const rejectPrompt =
-async(
-req,
-res
-)=>{
-
-try{
-
-const db =
-getDB();
-
-await db
-.collection(
-"prompts"
-)
-.updateOne(
-
-{
-
-_id:
-new ObjectId(
-req.params.id
-),
-
-},
-
-{
-
-$set:{
-
-status:
-"rejected",
-
-rejectionReason:
-req.body.reason,
-
-},
-
-}
-
-);
-
-res.json({
-
-success:true,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+      prompts,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
-const getAllPrompts =
-async(
-req,
-res
-)=>{
+const copyPrompt = async (req, res) => {
+  try {
+    const db = getDB();
 
-try{
+    await db.collection("prompts").updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $inc: {
+          copyCount: 1,
+        },
+      }
+    );
 
-const db =
-getDB();
-
-const {
-
-search,
-category,
-tool,
-difficulty,
-sort,
-
-} =
-req.query;
-
-let query = {
-
-status:
-"approved",
-
+    res.json({
+      success: true,
+      message: "Copied",
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
-if(
-search
-){
+const addReview = async (req, res) => {
+  try {
+    const db = getDB();
 
-query.$or=[
+    const { rating, comment } = req.body;
 
-{
+    const exists = await db.collection("reviews").findOne({
+      promptId: req.params.id,
+      userEmail: req.user.email,
+    });
 
-title:{
-$regex:search,
-$options:"i",
-},
+    if (exists) {
+      return res.status(400).json({
+        message: "Already reviewed",
+      });
+    }
 
-},
+    await db.collection("reviews").insertOne({
+      promptId: req.params.id,
+      userEmail: req.user.email,
+      name: req.user.name,
+      rating: Number(rating),
+      comment,
+      createdAt: new Date(),
+    });
 
-{
+    const reviews = await db.collection("reviews").find({
+      promptId: req.params.id,
+    }).toArray();
 
-tool:{
-$regex:search,
-$options:"i",
-},
+    const avg =
+      reviews.reduce((a, b) => a + b.rating, 0) /
+      reviews.length;
 
-},
+    await db.collection("prompts").updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $set: {
+          rating: avg,
+          reviewCount: reviews.length,
+        },
+      }
+    );
 
-{
-
-tags:{
-$in:[
-new RegExp(
-search,
-"i"
-)
-],
-},
-
-},
-
-];
-
-}
-
-if(
-category){
-
-query.category=
-category;
-
-}
-
-if(
-tool){
-
-query.tool=
-tool;
-
-}
-
-if(
-difficulty){
-
-query.difficulty=
-difficulty;
-
-}
-
-let order={
-
-createdAt:-1,
-
-};
-
-if(
-sort==="copied")
-order={
-copyCount:-1
-};
-
-if(
-sort==="popular")
-order={
-rating:-1
-};
-
-const prompts =
-await db
-.collection(
-"prompts"
-)
-
-.find(
-query
-)
-
-.sort(
-order
-)
-
-.toArray();
-
-res.json({
-
-success:true,
-
-prompts,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
 
-const copyPrompt =
-async(
-req,
-res
-)=>{
+const getReviews = async (req, res) => {
+  try {
+    const db = getDB();
 
-try{
+    const reviews = await db
+      .collection("reviews")
+      .find({
+        promptId: req.params.id,
+      })
+      .sort({
+        createdAt: -1,
+      })
+      .toArray();
 
-const db =
-getDB();
-
-await db
-.collection(
-"prompts"
-)
-.updateOne(
-
-{
-_id:
-new ObjectId(
-req.params.id
-)
-},
-
-{
-
-$inc:{
-copyCount:1
-},
-
-}
-
-);
-
-res.json({
-
-success:true,
-
-message:
-"Copied",
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+      reviews,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
+const reportPrompt = async (req, res) => {
+  try {
+    const db = getDB();
 
-const addReview =
-async(
-req,
-res
-)=>{
+    const exists = await db.collection("reports").findOne({
+      promptId: req.params.id,
+      userEmail: req.user.email,
+    });
 
-try{
+    if (exists) {
+      return res.status(400).json({
+        message: "Already reported",
+      });
+    }
 
-const db =
-getDB();
+    await db.collection("reports").insertOne({
+      promptId: req.params.id,
+      userEmail: req.user.email,
+      name: req.user.name,
+      reason: req.body.reason || "No reason",
+      status: "pending",
+      createdAt: new Date(),
+    });
 
-const {
-
-rating,
-comment,
-
-}=
-req.body;
-
-const exists =
-await db
-.collection(
-"reviews"
-)
-.findOne({
-
-promptId:
-req.params.id,
-
-userEmail:
-req.user.email,
-
-});
-
-if(
-exists
-){
-
-return res
-.status(400)
-.json({
-
-message:
-"Already reviewed",
-
-});
-
-}
-
-await db
-.collection(
-"reviews"
-)
-.insertOne({
-
-promptId:
-req.params.id,
-
-userEmail:
-req.user.email,
-
-name:
-req.user.name,
-
-rating:
-Number(
-rating
-),
-
-comment,
-
-createdAt:
-new Date(),
-
-});
-
-const reviews =
-await db
-.collection(
-"reviews"
-)
-.find({
-
-promptId:
-req.params.id,
-
-})
-.toArray();
-
-const avg =
-
-reviews
-.reduce(
-
-(a,b)=>
-
-a+
-b.rating,
-
-0
-
-)
-
-/
-
-reviews.length;
-
-await db
-.collection(
-"prompts"
-)
-.updateOne(
-
-{
-
-_id:
-new ObjectId(
-req.params.id
-),
-
-},
-
-{
-
-$set:{
-
-rating:
-avg,
-
-reviewCount:
-reviews.length,
-
-},
-
-}
-
-);
-
-res.json({
-
-success:true,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+      message: "Reported successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
 
+const getFeaturedPrompts = async (req, res) => {
+  try {
+    const db = getDB();
 
-const getReviews =
-async(
-req,
-res
-)=>{
+    const prompts = await db
+      .collection("prompts")
+      .find({
+        status: "approved",
+      })
+      .sort({
+        copyCount: -1,
+        rating: -1,
+        createdAt: -1,
+      })
+      .limit(6)
+      .toArray();
 
-try{
-
-const db =
-getDB();
-
-const reviews =
-await db
-.collection(
-"reviews"
-)
-.find({
-
-promptId:
-req.params.id,
-
-})
-
-.sort({
-
-createdAt:-1,
-
-})
-
-.toArray();
-
-res.json({
-
-success:true,
-
-reviews,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
+    res.json({
+      success: true,
+      prompts,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
 };
-const reportPrompt =
-async(
-req,
-res
-)=>{
-
-try{
-
-const db =
-getDB();
-
-const exists =
-await db
-.collection(
-"reports"
-)
-.findOne({
-
-promptId:
-req.params.id,
-
-userEmail:
-req.user.email,
-
-});
-
-if(
-exists
-){
-
-return res
-.status(400)
-.json({
-
-message:
-"Already reported",
-
-});
-
-}
-
-await db
-.collection(
-"reports"
-)
-.insertOne({
-
-promptId:
-req.params.id,
-
-userEmail:
-req.user.email,
-
-name:
-req.user.name,
-
-reason:
-req.body.reason ||
-
-"No reason",
-
-status:
-"pending",
-
-createdAt:
-new Date(),
-
-});
-
-res.json({
-
-success:true,
-
-message:
-"Reported successfully",
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
-};
-const getFeaturedPrompts =
-async(
-req,
-res
-)=>{
-
-try{
-
-const db =
-getDB();
-
-const prompts =
-
-await db
-.collection(
-"prompts"
-)
-
-.find({
-
-status:
-"approved",
-
-})
-
-.sort({
-
-copyCount:-1,
-
-rating:-1,
-
-createdAt:-1,
-
-})
-
-.limit(6)
-
-.toArray();
-
-res.json({
-
-success:true,
-
-prompts,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-message:
-error.message,
-
-});
-
-}
-
-};
-
-
 
 const getCategories = async (req, res) => {
   try {
@@ -1491,276 +691,144 @@ const getCategories = async (req, res) => {
 };
 
 
-
-
-const getTopCreators =
-async(
-req,
-res
-)=>{
-
-try{
-
-const db =
-getDB();
-
-const creators =
-
-await db
-.collection(
-"prompts"
-)
-
-.aggregate([
-
-{
-$match:{
-status:
-"approved"
-}
-},
-
-{
-$group:{
-
-_id:
-"$creatorEmail",
-
-name:{
-$first:
-"$creatorName"
-},
-
-email:{
-$first:
-"$creatorEmail"
-},
-
-prompts:{
-$sum:1
-},
-
-sales:{
-$sum:
-0
-}
-
-}
-
-},
-
-{
-$lookup:{
-
-from:
-"users",
-
-localField:
-"email",
-
-foreignField:
-"email",
-
-as:
-"user"
-
-}
-
-},
-
-{
-$unwind:{
-
-path:
-"$user",
-
-preserveNullAndEmptyArrays:
-true
-
-}
-
-},
-
-{
-$project:{
-
-_id:1,
-
-name:1,
-
-email:1,
-
-prompts:1,
-
-sales:1,
-
-image:{
-
-$ifNull:[
-
-"$user.image",
-
-{
-
-$ifNull:[
-
-"$user.photoURL",
-
-"$user.avatar"
-
-]
-
-}
-
-]
-
-}
-
-}
-
-},
-
-{
-$sort:{
-
-prompts:-1
-
-}
-
-},
-
-{
-
-$limit:4
-
-}
-
-])
-
-.toArray();
-
-res.json({
-
-success:true,
-
-creators,
-
-});
-
-}
-
-catch(
-error
-){
-
-console.log(
-error
-);
-
-res
-.status(500)
-.json({
-
-success:false,
-
-message:
-error.message,
-
-});
-
-}
-
-};
-
-const getNewUsers =
-async (
-req,
-res
-)=>{
-
-try{
-
-const db =
-getDB();
-
-const users =
-await db
-.collection(
-"users"
-)
-.find(
-{}
-)
-.sort({
-
-createdAt:-1,
-
-})
-.limit(4)
-.project({
-
-name:1,
-role:1,
-image:1,
-avatar:1,
-photoURL:1,
-profileImage:1,
-createdAt:1,
-
-})
-.toArray();
-
-res.json({
-
-success:true,
-
-users,
-
-});
-
-}
-
-catch(
-error
-){
-
-res
-.status(500)
-.json({
-
-success:false,
-
-message:
-error.message,
-
-});
-
-}
-
-};
-const getCreatorTopPrompts = async (req, res) => {
-
+const getTopCreators = async (req, res) => {
   try {
+    const db = getDB();
 
+    const creators = await db
+      .collection("prompts")
+      .aggregate([
+        {
+          $match: {
+            status: "approved",
+          },
+        },
+        {
+          $group: {
+            _id: "$creatorEmail",
+            name: {
+              $first: "$creatorName",
+            },
+            email: {
+              $first: "$creatorEmail",
+            },
+            prompts: {
+              $sum: 1,
+            },
+            sales: {
+              $sum: 0,
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "email",
+            foreignField: "email",
+            as: "user",
+          },
+        },
+        {
+          $unwind: {
+            path: "$user",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            name: 1,
+            email: 1,
+            prompts: 1,
+            sales: 1,
+            image: {
+              $ifNull: [
+                "$user.image",
+                {
+                  $ifNull: [
+                    "$user.photoURL",
+                    "$user.avatar",
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        {
+          $sort: {
+            prompts: -1,
+          },
+        },
+        {
+          $limit: 4,
+        },
+      ])
+      .toArray();
+
+    res.json({
+      success: true,
+      creators,
+    });
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const getNewUsers = async (req, res) => {
+  try {
+    const db = getDB();
+
+    const users = await db
+      .collection("users")
+      .find({})
+      .sort({
+        createdAt: -1,
+      })
+      .limit(4)
+      .project({
+        name: 1,
+        role: 1,
+        image: 1,
+        avatar: 1,
+        photoURL: 1,
+        profileImage: 1,
+        createdAt: 1,
+      })
+      .toArray();
+
+    res.json({
+      success: true,
+      users,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const getCreatorTopPrompts = async (req, res) => {
+  try {
     const db = getDB();
 
     const prompts = await db
       .collection("prompts")
       .find({
-
         creatorEmail: req.user.email,
-
       })
       .sort({
-
         copyCount: -1,
         bookmarkCount: -1,
         rating: -1,
-
       })
       .limit(5)
       .project({
-
         title: 1,
         thumbnail: 1,
         status: 1,
@@ -1768,55 +836,39 @@ const getCreatorTopPrompts = async (req, res) => {
         bookmarkCount: 1,
         rating: 1,
         reviewCount: 1,
-
       })
       .toArray();
 
     res.json({
-
       success: true,
       prompts,
-
     });
-
-  }
-
-  catch (error) {
-
+  } catch (error) {
     res.status(500).json({
-
       success: false,
       message: error.message,
-
     });
-
   }
-
 };
-module.exports={
 
-addPrompt,
-
-getMyPrompts,
-getSinglePrompt,
-deletePrompt,
-updatePrompt,
-
-getAllPromptsAdmin,
-approvePrompt,
-rejectPrompt,
-
-getAllPrompts,
-getFeaturedPrompts,
-copyPrompt,
-
-addReview,
-getReviews,
-getCategories,
-getTopCreators ,
-
-getPromptStats,
-getNewUsers,
-getCreatorTopPrompts,
-reportPrompt,
+module.exports = {
+  addPrompt,
+  getMyPrompts,
+  getSinglePrompt,
+  deletePrompt,
+  updatePrompt,
+  getAllPromptsAdmin,
+  approvePrompt,
+  rejectPrompt,
+  getAllPrompts,
+  getFeaturedPrompts,
+  copyPrompt,
+  addReview,
+  getReviews,
+  getCategories,
+  getTopCreators,
+  getPromptStats,
+  getNewUsers,
+  getCreatorTopPrompts,
+  reportPrompt,
 };
