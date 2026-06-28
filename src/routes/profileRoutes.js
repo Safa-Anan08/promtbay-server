@@ -2,7 +2,7 @@ const router = require("express").Router();
 
 const verifyToken = require("../middleware/verifyToken");
 
-const upload = require("../middleware/upload");
+const upload  = require("../middleware/upload");
 
 const {
   getProfile,

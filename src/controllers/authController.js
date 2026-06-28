@@ -33,7 +33,6 @@ const registerUser = async (req, res) => {
       bio: "",
       profession: "",
       skills: "",
-      resume: "",
 
       status: "active",
 
@@ -88,12 +87,15 @@ const loginUser = async (req, res) => {
 
     const token = generateToken(user);
 
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    const isProd =
+  process.env.NODE_ENV === "production";
+
+  res.cookie("token", token, {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: isProd ? "none" : "lax",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+ });
 
     delete user.password;
 
@@ -118,11 +120,14 @@ const getMe = async (req, res) => {
 };
 
 const logoutUser = async (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: false,
-    sameSite: "lax",
-  });
+  const isProd =
+  process.env.NODE_ENV === "production";
+
+res.clearCookie("token", {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: isProd ? "none" : "lax",
+});
 
   res.status(200).json({
     success: true,

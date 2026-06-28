@@ -6,15 +6,33 @@ const getAllUsers = async (req, res) => {
   try {
     const db = getDB();
 
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    const skip = (page - 1) * limit;
+
+    const total = await db
+      .collection("users")
+      .countDocuments();
+
     const users = await db
       .collection("users")
       .find()
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .toArray();
 
     res.json({
       success: true,
       users,
+
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     res.status(500).json({

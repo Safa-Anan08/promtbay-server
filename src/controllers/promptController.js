@@ -3,102 +3,200 @@ const { getDB } =require("../config/db");
 const cloudinary =require("../config/cloudinary");
 
 const {ObjectId,} =require("mongodb");
-const addPrompt =async (req,res)=>{
-        try
-        {
-          const db =getDB()
-            const user =await db.collection("users").findOne({
-             email:
-             req.user.email,});
 
+const addPrompt = async (req, res) => {
+  try {
 
-            if(
-              !["user","creator"]
-            .includes(user?.role)){
+    if (!req.user?.email) {
+      return res.status(401).json({
+        message: "Login required",
+      });
+    }
 
-            return res
-            .status(403)
-            .json({
+    const db = getDB();
 
-          message:"Not allowed",
+    console.log("REQ USER =>", req.user);
+    console.log("BODY =>", req.body);
+    console.log("FILE =>", req.file);
 
-           });
+    const user = await db.collection("users").findOne({
+      email: req.user.email,
+    });
 
-             }
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
 
-           if(user?.plan==="free"){
-           const total =await db.collection("prompts").countDocuments({
+    if (
+      !["user", "creator"].includes(
+        user?.role
+      )
+    ) {
+      return res.status(403).json({
+        message: "Not allowed",
+      });
+    }
 
+    const plan =
+      user?.subscription?.plan?.toLowerCase() ||
+      user?.plan?.toLowerCase() ||
+      "free";
+
+    if (plan === "free") {
+
+      const total =
+        await db
+          .collection("prompts")
+          .countDocuments({
             creatorEmail:
-            req.user.email,
+              req.user.email,
+          });
 
-            });
+      if (total >= 3) {
+        return res.status(403).json({
+          message:
+            "Free users can add only 3 prompts",
+        });
+      }
+    }
 
-                 if(total>=3){return res.status(403).json({
+    let thumbnail = "";
 
-                 message:"Free users can add only 3 prompts",});
-           }}
+if (req.file) {
+  if (req.file.buffer) {
+    const upload = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: "prompts",
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        }
+      );
 
+      stream.end(req.file.buffer);
+    });
 
-             let thumbnail ="";
+    thumbnail = upload.secure_url;
+  } else if (req.file.path) {
+    const upload = await cloudinary.uploader.upload(req.file.path, {
+      folder: "prompts",
+    });
 
-          if(req.file){const result =await cloudinary.uploader.upload(req.file.path,
-
-             {folder:"prompts",});
-
-           thumbnail =result.secure_url;}
-
-          const prompt = {
-
-           title:
-           req.body.title,
-           description:
-           req.body.description,
-           content:
-           req.body.content,
-          category:
-          req.body.category,
-          tool:
-          req.body.tool,
-          tags:req.body.tags?.split(","),
-
-          difficulty:
-           req.body.difficulty,
-
-           visibility:
-            req.body.visibility,
-
-          thumbnail,
-
-          creatorEmail:
-           req.user.email,
-            creatorName:
-            user.name,
-         copyCount:0,
-        bookmarkCount:0,
-        reviewCount:0,
-       rating:0,
-
-        status:"pending",
-         createdAt:new Date(),};
-
-          await db.collection("prompts").insertOne(prompt);
-
-res.status(201).json({
-  success: true,
-  message: "Prompt Added",
-});
-
-} catch (error) {
-
-  console.log("ADD PROMPT ERROR:", error);
-
-  res.status(500).json({
-    message: error.message,
-  });
-
+    thumbnail = upload.secure_url;
+  }
 }
+    const prompt = {
 
+      title:
+        req.body.title || "",
+
+      description:
+        req.body.description || "",
+
+      content:
+        req.body.content || "",
+
+      category:
+        req.body.category || "",
+
+      tool:
+        req.body.tool || "",
+
+      tags:
+        req.body.tags
+          ? req.body.tags
+              .split(",")
+              .map((t) => t.trim())
+          : [],
+
+      difficulty:
+        req.body.difficulty ||
+        "Beginner",
+
+      visibility:
+        req.body.visibility ||
+        "Public",
+
+      thumbnail,
+
+      creatorEmail:
+        req.user.email,
+
+      creatorName:
+        user.name ||
+
+        user.displayName ||
+
+        "Anonymous",
+
+      copyCount: 0,
+
+      bookmarkCount: 0,
+
+      reviewCount: 0,
+
+      rating: 0,
+
+      status: "pending",
+
+      createdAt:
+        new Date(),
+    };
+
+    const result =
+      await db
+        .collection("prompts")
+        .insertOne(prompt);
+
+    return res.status(201).json({
+
+      success: true,
+
+      insertedId:
+        result.insertedId,
+
+      message:
+        "Prompt Added",
+
+    });
+
+  }
+
+  catch (error) {
+
+    console.log(
+      "ADD PROMPT ERROR =>"
+    );
+
+    console.log(error);
+
+    console.log(
+      error?.message
+    );
+
+    console.log(
+      error?.stack
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        error?.message ||
+
+        "Internal Server Error",
+
+    });
+
+  }
 };
 
 const getMyPrompts = async (req, res) => {
@@ -271,17 +369,69 @@ const getAllPromptsAdmin = async (req, res) => {
   try {
     const db = getDB();
 
+    const {
+      page = 1,
+      limit = 6,
+      search = "",
+      status = "all",
+    } = req.query;
+
+    const currentPage = Number(page);
+    const perPage = Number(limit);
+
+    let query = {};
+
+    if (search) {
+      query.$or = [
+        {
+          title: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+        {
+          creatorEmail: {
+            $regex: search,
+            $options: "i",
+          },
+        },
+      ];
+    }
+
+    if (status !== "all") {
+      query.status = status;
+    }
+
+    const total = await db
+      .collection("prompts")
+      .countDocuments(query);
+
     const prompts = await db
       .collection("prompts")
-      .find()
+      .find(query)
       .sort({
         createdAt: -1,
       })
+      .skip((currentPage - 1) * perPage)
+      .limit(perPage)
       .toArray();
 
     res.json({
       success: true,
       prompts,
+
+      pagination: {
+        total,
+        page: currentPage,
+        limit: perPage,
+        totalPages: Math.ceil(total / perPage),
+        hasNext:
+          currentPage <
+          Math.ceil(total / perPage),
+
+        hasPrev:
+          currentPage > 1,
+      },
     });
   } catch (error) {
     res.status(500).json({
@@ -289,7 +439,6 @@ const getAllPromptsAdmin = async (req, res) => {
     });
   }
 };
-
 const approvePrompt = async (req, res) => {
   try {
     const db = getDB();
@@ -387,6 +536,8 @@ const getAllPrompts = async (req, res) => {
       tool,
       difficulty,
       sort,
+      page = 1,
+      limit = 10,
     } = req.query;
 
     let query = {
@@ -443,15 +594,33 @@ const getAllPrompts = async (req, res) => {
       };
     }
 
+    const currentPage = Number(page);
+    const perPage = Number(limit);
+
+    const total = await db
+      .collection("prompts")
+      .countDocuments(query);
+
     const prompts = await db
       .collection("prompts")
       .find(query)
       .sort(order)
+      .skip((currentPage - 1) * perPage)
+      .limit(perPage)
       .toArray();
 
     res.json({
       success: true,
       prompts,
+
+      pagination: {
+        total,
+        page: currentPage,
+        limit: perPage,
+        totalPages: Math.ceil(total / perPage),
+        hasNext: currentPage < Math.ceil(total / perPage),
+        hasPrev: currentPage > 1,
+      },
     });
   } catch (error) {
     res.status(500).json({

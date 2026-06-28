@@ -8,62 +8,62 @@ const cloudinary =
 require("../config/cloudinary");
 
 const uploadAvatar = async (req, res) => {
-
   try {
-
     if (!req.file) {
-
       return res.status(400).json({
         message: "No file uploaded",
       });
-
     }
 
     const db = getDB();
 
     const result =
-      await cloudinary.uploader.upload(
-        req.file.path,
-        {
-          folder: "avatars",
-        }
-      );
+      await new Promise((resolve, reject) => {
+        const stream =
+          cloudinary.uploader.upload_stream(
+            {
+              folder: "avatars",
+            },
+            (error, uploaded) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(uploaded);
+              }
+            }
+          );
 
-    await db
-      .collection("users")
-      .updateOne(
-        {
-          email: req.user.email,
+        stream.end(req.file.buffer);
+      });
+
+    await db.collection("users").updateOne(
+      {
+        email: req.user.email,
+      },
+      {
+        $set: {
+          imgUrl: result.secure_url,
+          avatar: result.secure_url,
+          updatedAt: new Date(),
         },
-        {
-          $set: {
-            imgUrl: result.secure_url,
-            updatedAt: new Date(),
-          },
-        }
-      );
+      }
+    );
 
     res.status(200).json({
-
       success: true,
       url: result.secure_url,
       message: "Avatar Uploaded",
-
     });
 
-  }
+  } catch (error) {
 
-  catch (error) {
+    console.log(error);
 
     res.status(500).json({
       message: error.message,
     });
-
   }
-
 };
-
-
 
 const getProfile = async (req, res) => {
 
