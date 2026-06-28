@@ -2,121 +2,244 @@ const { getDB } = require("../config/db");
 const { ObjectId } = require("mongodb");
 
 const copyPrompt = async (req, res) => {
-  try {
-    const db = getDB();
+try {
 
-    const promptId = new ObjectId(req.params.id);
+const db = getDB();
 
-   
-    const prompt = await db.collection("prompts").findOne({
-      _id: promptId,
-    });
+if (!req.user?.email) {
+return res.status(401).json({
+success: false,
+message: "Login required",
+});
+}
 
-    if (!prompt) {
-      return res.status(404).json({
-        message: "Prompt not found",
-      });
-    }
+const promptId =
+new ObjectId(req.params.id);
 
-    const exists = await db.collection("copies").findOne({
-      promptId,
-      userEmail: req.user.email,
-    });
+const prompt =
+await db.collection("prompts")
+.findOne({
+_id: promptId,
+});
 
-    if (exists) {
-      return res.json({
-        success: true,
-        message: "Already copied",
-      });
-    }
+if (!prompt) {
+return res.status(404).json({
+success: false,
+message: "Prompt not found",
+});
+}
 
+const exists =
+await db.collection("copies")
+.findOne({
+promptId,
+userEmail:
+req.user.email,
+});
 
-    await db.collection("copies").insertOne({
-      promptId,
-      userEmail: req.user.email,
-      createdAt: new Date(),
-    });
+if (exists) {
 
+await db.collection("copies")
+.deleteOne({
+_id:
+exists._id,
+});
 
-    await db.collection("prompts").updateOne(
-      {
-        _id: promptId,
-      },
-      {
-        $inc: {
-          copyCount: 1,
-        },
-      }
-    );
+await db.collection("prompts")
+.updateOne(
+{
+_id:
+promptId,
+},
+{
+$inc:{
+copyCount:-1,
+},
+}
+);
 
-    const updatedPrompt = await db.collection("prompts").findOne({
-      _id: promptId,
-    });
+const updated =
+await db.collection("prompts")
+.findOne({
+_id:
+promptId,
+});
 
-    res.json({
-      success: true,
-      message: "Prompt copied successfully",
-      copyCount: updatedPrompt.copyCount,
-    });
-  } catch (error) {
-    console.log(error);
+return res.json({
 
-    res.status(500).json({
-      message: error.message,
-    });
-  }
+success:true,
+
+copied:false,
+
+action:"removed",
+
+copyCount:
+Math.max(
+updated?.copyCount || 0,
+0
+),
+
+message:
+"Copy removed",
+
+});
+}
+
+await db.collection("copies")
+.insertOne({
+
+promptId,
+
+userEmail:
+req.user.email,
+
+createdAt:
+new Date(),
+
+});
+
+await db.collection("prompts")
+.updateOne(
+{
+_id:
+promptId,
+},
+{
+$inc:{
+copyCount:1,
+},
+}
+);
+
+const updated =
+await db.collection("prompts")
+.findOne({
+_id:
+promptId,
+});
+
+return res.json({
+
+success:true,
+
+copied:true,
+
+action:"added",
+
+copyCount:
+updated.copyCount,
+
+message:
+"Prompt copied",
+
+});
+
+}
+
+catch(error){
+
+console.log(error);
+
+return res.status(500).json({
+
+success:false,
+
+message:error.message,
+
+});
+
+}
+
 };
 
-const getCopiedPrompts = async (req, res) => {
-  try {
-    const db = getDB();
+const getCopiedPrompts = async (req,res)=>{
 
-    const copied = await db
-      .collection("copies")
-      .aggregate([
-        {
-          $match: {
-            userEmail: req.user.email,
-          },
-        },
-        {
-          $lookup: {
-            from: "prompts",
-            localField: "promptId",
-            foreignField: "_id",
-            as: "prompt",
-          },
-        },
-        {
-          $unwind: "$prompt",
-        },
-        {
-          $replaceRoot: {
-            newRoot: "$prompt",
-          },
-        },
-        {
-          $sort: {
-            createdAt: -1,
-          },
-        },
-      ])
-      .toArray();
+try{
 
-    res.json({
-      success: true,
-      copied,
-    });
-  } catch (error) {
-    console.log(error);
+const db=getDB();
 
-    res.status(500).json({
-      message: error.message,
-    });
-  }
+if(!req.user?.email){
+
+return res.status(401).json({
+success:false,
+message:"Login required",
+});
+
+}
+
+const copied =
+await db.collection("copies")
+.aggregate([
+
+{
+$match:{
+userEmail:
+req.user.email,
+},
+},
+
+{
+$lookup:{
+from:"prompts",
+
+localField:
+"promptId",
+
+foreignField:
+"_id",
+
+as:"prompt",
+},
+},
+
+{
+$unwind:
+"$prompt",
+},
+
+{
+$replaceRoot:{
+newRoot:
+"$prompt",
+},
+},
+
+{
+$sort:{
+createdAt:-1,
+},
+},
+
+])
+.toArray();
+
+return res.json({
+
+success:true,
+
+copied,
+
+});
+
+}
+
+catch(error){
+
+console.log(error);
+
+return res.status(500).json({
+
+success:false,
+
+message:error.message,
+
+});
+
+}
+
 };
 
 module.exports = {
-  copyPrompt,
-  getCopiedPrompts,
+copyPrompt,
+getCopiedPrompts,
 };

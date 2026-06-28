@@ -2,199 +2,233 @@ const { getDB } = require("../config/db");
 const { ObjectId } = require("mongodb");
 
 const toggleBookmark = async (req, res) => {
+try {
 
-  try {
+const db = getDB();
 
-    const db = getDB();
+if (!req.user?.email) {
+return res.status(401).json({
+success: false,
+message: "Login required",
+});
+}
 
-    const promptId = new ObjectId(req.params.id);
+const promptId =
+new ObjectId(req.params.id);
 
-    const exists = await db.collection("bookmarks").findOne({
+const prompt =
+await db.collection("prompts").findOne({
+_id: promptId,
+});
 
-      userEmail: req.user.email,
+if (!prompt) {
+return res.status(404).json({
+success: false,
+message: "Prompt not found",
+});
+}
 
-      promptId,
+const exists =
+await db.collection("bookmarks")
+.findOne({
+promptId,
+userEmail:
+req.user.email,
+});
 
-    });
+if (exists) {
 
-    if (exists) {
+await db.collection("bookmarks")
+.deleteOne({
+_id:
+exists._id,
+});
 
-      await db.collection("bookmarks").deleteOne({
+await db.collection("prompts")
+.updateOne(
+{
+_id:
+promptId,
+},
+{
+$inc: {
+bookmarkCount: -1,
+},
+}
+);
 
-        _id: exists._id,
+const updated =
+await db.collection("prompts")
+.findOne({
+_id:
+promptId,
+});
 
-      });
+return res.json({
 
-      await db.collection("prompts").updateOne(
+success: true,
 
-        {
+bookmarked: false,
 
-          _id: promptId,
+bookmarkCount:
+Math.max(
+updated?.bookmarkCount || 0,
+0
+),
 
-        },
+message:
+"Bookmark Removed",
 
-        {
+});
+}
 
-          $inc: {
+await db.collection("bookmarks")
+.insertOne({
 
-            bookmarkCount: -1,
+promptId,
 
-          },
+userEmail:
+req.user.email,
 
-        }
+createdAt:
+new Date(),
 
-      );
+});
 
-      return res.json({
+await db.collection("prompts")
+.updateOne(
+{
+_id:
+promptId,
+},
+{
+$inc: {
+bookmarkCount: 1,
+},
+}
+);
 
-        success: true,
+const updated =
+await db.collection("prompts")
+.findOne({
+_id:
+promptId,
+});
 
-        message: "Bookmark Removed",
+return res.json({
 
-      });
+success: true,
 
-    }
+bookmarked: true,
 
-    await db.collection("bookmarks").insertOne({
+bookmarkCount:
+updated.bookmarkCount,
 
-      promptId,
+message:
+"Bookmarked",
 
-      userEmail: req.user.email,
+});
 
-      createdAt: new Date(),
+}
 
-    });
+catch(error){
 
-    await db.collection("prompts").updateOne(
+console.log(error);
 
-      {
+return res.status(500).json({
+success:false,
+message:error.message,
+});
 
-        _id: promptId,
-
-      },
-
-      {
-
-        $inc: {
-
-          bookmarkCount: 1,
-
-        },
-
-      }
-
-    );
-
-    res.json({
-
-      success: true,
-
-      message: "Bookmarked",
-
-    });
-
-  }
-
-  catch (error) {
-
-    res.status(500).json({
-
-      message: error.message,
-
-    });
-
-  }
+}
 
 };
 
-const getBookmarks = async (req, res) => {
+const getBookmarks = async (req,res)=>{
 
-  try {
+try{
 
-    const db = getDB();
+const db=getDB();
 
-    const saved = await db.collection("bookmarks").aggregate([
+if(!req.user?.email){
 
-      {
+return res.status(401).json({
+success:false,
+message:"Login required",
+});
 
-        $match: {
+}
 
-          userEmail: req.user.email,
+const saved=
+await db.collection("bookmarks")
+.aggregate([
 
-        },
+{
+$match:{
+userEmail:
+req.user.email,
+},
+},
 
-      },
+{
+$lookup:{
+from:"prompts",
 
-      {
+localField:
+"promptId",
 
-        $lookup: {
+foreignField:
+"_id",
 
-          from: "prompts",
+as:"prompt",
+},
+},
 
-          localField: "promptId",
+{
+$unwind:
+"$prompt",
+},
 
-          foreignField: "_id",
+{
+$replaceRoot:{
+newRoot:
+"$prompt",
+},
+},
 
-          as: "prompt",
+{
+$sort:{
+createdAt:-1,
+},
+},
 
-        },
+])
+.toArray();
 
-      },
+return res.json({
 
-      {
+success:true,
 
-        $unwind: "$prompt",
+saved,
 
-      },
+});
 
-      {
+}
 
-        $replaceRoot: {
+catch(error){
 
-          newRoot: "$prompt",
+console.log(error);
 
-        },
+return res.status(500).json({
+success:false,
+message:error.message,
+});
 
-      },
-
-      {
-
-        $sort: {
-
-          createdAt: -1,
-
-        },
-
-      },
-
-    ]).toArray();
-
-    res.json({
-
-      success: true,
-
-      saved,
-
-    });
-
-  }
-
-  catch (error) {
-
-    res.status(500).json({
-
-      message: error.message,
-
-    });
-
-  }
+}
 
 };
 
-module.exports = {
-
-  toggleBookmark,
-
-  getBookmarks,
-
+module.exports={
+toggleBookmark,
+getBookmarks,
 };

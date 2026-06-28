@@ -228,37 +228,51 @@ const getMyPrompts = async (req, res) => {
 };
 
 const getSinglePrompt = async (req, res) => {
-
   try {
-
     const db = getDB();
 
-    const prompt = await db
-      .collection("prompts")
-      .findOne({
-        _id: new ObjectId(req.params.id),
-      });
+    const promptId = new ObjectId(req.params.id);
+
+    const prompt = await db.collection("prompts").findOne({
+      _id: promptId,
+    });
 
     if (!prompt) {
-
       return res.status(404).json({
         message: "Prompt not found",
       });
-
     }
 
     let canAccess = true;
 
+    let isBookmarked = false;
+
+    let isCopied = false;
+
+    if (req.user?.email) {
+      const bookmark =
+        await db.collection("bookmarks").findOne({
+          promptId,
+          userEmail: req.user.email,
+        });
+
+      const copy =
+        await db.collection("copies").findOne({
+          promptId,
+          userEmail: req.user.email,
+        });
+
+      isBookmarked = !!bookmark;
+
+      isCopied = !!copy;
+    }
 
     if (prompt.visibility === "premium") {
-
       canAccess = false;
 
-      if (req.user) {
-
-        const user = await db
-          .collection("users")
-          .findOne({
+      if (req.user?.email) {
+        const user =
+          await db.collection("users").findOne({
             email: req.user.email,
           });
 
@@ -266,29 +280,24 @@ const getSinglePrompt = async (req, res) => {
           user?.plan === "premium" ||
           user?.subscriptionStatus === "active"
         ) {
-
           canAccess = true;
-
         }
-
       }
-
     }
 
     res.json({
       success: true,
       prompt,
       canAccess,
+      isBookmarked,
+      isCopied,
     });
 
   } catch (error) {
-
     res.status(500).json({
       message: error.message,
     });
-
   }
-
 };
 
 const deletePrompt = async (req, res) => {
@@ -629,31 +638,7 @@ const getAllPrompts = async (req, res) => {
   }
 };
 
-const copyPrompt = async (req, res) => {
-  try {
-    const db = getDB();
 
-    await db.collection("prompts").updateOne(
-      {
-        _id: new ObjectId(req.params.id),
-      },
-      {
-        $inc: {
-          copyCount: 1,
-        },
-      }
-    );
-
-    res.json({
-      success: true,
-      message: "Copied",
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: error.message,
-    });
-  }
-};
 
 const addReview = async (req, res) => {
   try {
@@ -1031,7 +1016,6 @@ module.exports = {
   rejectPrompt,
   getAllPrompts,
   getFeaturedPrompts,
-  copyPrompt,
   addReview,
   getReviews,
   getCategories,
